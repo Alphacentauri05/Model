@@ -2,14 +2,14 @@
     "version": 2,
     "builds": [
       {
-        "src": "api/predict.py",
+        "src": "main.py",
         "use": "@vercel/python"
       }
     ],
     "routes": [
       {
-        "src": "/api/predict",
-        "dest": "/api/predict.py"
+        "src": "/(.*)",
+        "dest": "/main.py"
       }
     ]
   }
