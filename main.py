@@ -6,7 +6,6 @@ import uvicorn
 from io import BytesIO
 import os
 import gdown
-import shutil
 
 # Constants
 MODEL_PATH = "./best_rf_model.pkl"
@@ -88,7 +87,7 @@ def handle_prediction(audio, sr):
         # You can log or store the results in a database if needed
     except Exception as e:
         print(f"Error during prediction: {str(e)}")
-
+port = int(os.getenv("PORT", 10000))
 # Run the app
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
