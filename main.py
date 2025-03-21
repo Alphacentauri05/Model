@@ -1,21 +1,24 @@
 import librosa
 import numpy as np
 import joblib
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 import uvicorn
 from io import BytesIO
 import os
 import gdown
+import shutil
 
-# Load the trained model
+# Constants
 MODEL_PATH = "./best_rf_model.pkl"
 GOOGLE_DRIVE_FILE_ID = "1xtdK73bVV2XOx9iXcVN2xKbwy82QeqNQ"  # Replace with your actual file ID
 
+# Load the trained model only once
 if not os.path.exists(MODEL_PATH):
     print("Downloading model from Google Drive...")
     url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
     gdown.download(url, MODEL_PATH, quiet=False)
 
+# Load model into memory (this happens once when the app starts)
 model = joblib.load(MODEL_PATH)
 
 # Initialize FastAPI app
@@ -61,19 +64,31 @@ def predict_emotion(audio, sr):
     return prediction
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     """API endpoint to accept a .wav file and return predicted mood."""
     try:
         audio_bytes = await file.read()
         audio_buffer = BytesIO(audio_bytes)
         
+        # Load audio
         audio, sr = librosa.load(audio_buffer, sr=22050)
-        mood = predict_emotion(audio, sr)
         
-        return {"mood": mood}
+        # Run prediction asynchronously in the background
+        background_tasks.add_task(handle_prediction, audio, sr)
+        
+        return {"message": "Your request is being processed."}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"An error occurred: {str(e)}"}
 
-# Run locally
+def handle_prediction(audio, sr):
+    """Process the prediction in the background."""
+    try:
+        mood = predict_emotion(audio, sr)
+        print(f"Predicted mood: {mood}")
+        # You can log or store the results in a database if needed
+    except Exception as e:
+        print(f"Error during prediction: {str(e)}")
+
+# Run the app
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
