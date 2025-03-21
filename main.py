@@ -1,41 +1,60 @@
 import librosa
 import numpy as np
 import joblib
-import requests
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 import uvicorn
 from io import BytesIO
 import os
+import gdown
+import shutil
 
-# Hugging Face model details
-HF_USERNAME = "udaysharma123"
-HF_MODEL_REPO = "colon_final"
-MODEL_FILENAME = "best_rf_model.pkl"
-MODEL_PATH = f"./{MODEL_FILENAME}"
+# Constants
+MODEL_PATH = "./best_rf_model.pkl"
+GOOGLE_DRIVE_FILE_ID = "1xtdK73bVV2XOx9iXcVN2xKbwy82QeqNQ"  # Replace with your actual file ID
 
-# Check if model exists locally
+# Load the trained model only once
 if not os.path.exists(MODEL_PATH):
-    print("Downloading model from Hugging Face...")
-    url = f"https://huggingface.co/{HF_USERNAME}/{HF_MODEL_REPO}/resolve/main/{MODEL_FILENAME}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        with open(MODEL_PATH, "wb") as f:
-            f.write(response.content)
-        print("Model downloaded successfully!")
-    else:
-        raise Exception(f"Failed to download model. Status code: {response.status_code}")
-else:
-    print("Model already exists locally.")
+    print("Downloading model from Google Drive...")
+    url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
+    gdown.download(url, MODEL_PATH, quiet=False)
 
-# Load model into memory
+# Load model into memory (this happens once when the app starts)
 model = joblib.load(MODEL_PATH)
 
 # Initialize FastAPI app
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the emotion prediction API!"}
+
 def extract_features(audio, sr):
     """Extract features from audio."""
-    # Your feature extraction code here...
+    pitch_values = librosa.yin(audio, fmin=50, fmax=300)
+    pitch_mean, pitch_std, pitch_range = np.mean(pitch_values), np.std(pitch_values), np.ptp(pitch_values)
+    
+    rms_energy = librosa.feature.rms(y=audio).flatten()
+    intensity_mean, intensity_std, intensity_range = np.mean(rms_energy), np.std(rms_energy), np.ptp(rms_energy)
+    
+    duration = librosa.get_duration(y=audio, sr=sr)
+    peaks = librosa.effects.split(audio, top_db=30)
+    speech_rate = len(peaks) / duration if duration > 0 else 0
+    
+    spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr))
+    spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=audio, sr=sr))
+    
+    zcr = np.mean(librosa.feature.zero_crossing_rate(y=audio))
+    
+    mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
+    mfccs_mean = np.mean(mfccs, axis=1)
+    
+    feature_vector = np.hstack([ 
+        pitch_mean, pitch_std, pitch_range, 
+        intensity_mean, intensity_std, intensity_range, 
+        speech_rate, spectral_centroid, spectral_rolloff, zcr, 
+        mfccs_mean 
+    ])
+    return feature_vector
 
 def predict_emotion(audio, sr):
     """Predict emotion from extracted features."""
@@ -45,19 +64,31 @@ def predict_emotion(audio, sr):
     return prediction
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     """API endpoint to accept a .wav file and return predicted mood."""
     try:
         audio_bytes = await file.read()
         audio_buffer = BytesIO(audio_bytes)
         
+        # Load audio
         audio, sr = librosa.load(audio_buffer, sr=22050)
-        mood = predict_emotion(audio, sr)
         
-        return {"mood": mood}
+        # Run prediction asynchronously in the background
+        background_tasks.add_task(handle_prediction, audio, sr)
+        
+        return {"message": "Your request is being processed."}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"An error occurred: {str(e)}"}
 
-# Run locally
+def handle_prediction(audio, sr):
+    """Process the prediction in the background."""
+    try:
+        mood = predict_emotion(audio, sr)
+        print(f"Predicted mood: {mood}")
+        # You can log or store the results in a database if needed
+    except Exception as e:
+        print(f"Error during prediction: {str(e)}")
+
+# Run the app
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
