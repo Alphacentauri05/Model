@@ -6,23 +6,21 @@ import uvicorn
 from io import BytesIO
 import os
 import gdown
-import shutil
 
 # Constants
 MODEL_PATH = "./best_rf_model.pkl"
 GOOGLE_DRIVE_FILE_ID = "1xtdK73bVV2XOx9iXcVN2xKbwy82QeqNQ"  # Replace with your actual file ID
 
-# Load the trained model only once
-if not os.path.exists(MODEL_PATH):
-    print("Downloading model from Google Drive...")
-    url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
-    gdown.download(url, MODEL_PATH, quiet=False)
-
-# Load model into memory (this happens once when the app starts)
-model = joblib.load(MODEL_PATH)
-
 # Initialize FastAPI app
 app = FastAPI()
+
+# Function to download the model
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        print("Downloading model from Google Drive...")
+        url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
+        gdown.download(url, MODEL_PATH, quiet=False)
+    return joblib.load(MODEL_PATH)
 
 @app.get("/")
 def read_root():
@@ -60,6 +58,9 @@ def predict_emotion(audio, sr):
     """Predict emotion from extracted features."""
     features = extract_features(audio, sr)
     features = np.array(features).reshape(1, -1)
+    
+    # Load the model (only once per request)
+    model = download_model()
     prediction = model.predict(features)[0]
     return prediction
 
