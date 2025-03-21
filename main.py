@@ -5,12 +5,9 @@ from fastapi import FastAPI, File, UploadFile
 import uvicorn
 from io import BytesIO
 import os
+import gdown
 
 # Load the trained model
-import gdown
-import joblib
-import os
-
 MODEL_PATH = "./best_rf_model.pkl"
 GOOGLE_DRIVE_FILE_ID = "1xtdK73bVV2XOx9iXcVN2xKbwy82QeqNQ"  # Replace with your actual file ID
 
@@ -21,9 +18,12 @@ if not os.path.exists(MODEL_PATH):
 
 model = joblib.load(MODEL_PATH)
 
-
 # Initialize FastAPI app
 app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the emotion prediction API!"}
 
 def extract_features(audio, sr):
     """Extract features from audio."""
@@ -45,11 +45,11 @@ def extract_features(audio, sr):
     mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
     mfccs_mean = np.mean(mfccs, axis=1)
     
-    feature_vector = np.hstack([
-        pitch_mean, pitch_std, pitch_range,
-        intensity_mean, intensity_std, intensity_range,
-        speech_rate, spectral_centroid, spectral_rolloff, zcr,
-        mfccs_mean
+    feature_vector = np.hstack([ 
+        pitch_mean, pitch_std, pitch_range, 
+        intensity_mean, intensity_std, intensity_range, 
+        speech_rate, spectral_centroid, spectral_rolloff, zcr, 
+        mfccs_mean 
     ])
     return feature_vector
 
@@ -76,4 +76,4 @@ async def predict(file: UploadFile = File(...)):
 
 # Run locally
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
